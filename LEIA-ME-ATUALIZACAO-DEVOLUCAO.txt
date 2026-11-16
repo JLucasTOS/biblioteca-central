@@ -1,0 +1,13 @@
+VERSÃO 3 — PEDIDO DE DEVOLUÇÃO PELO LEITOR
+
+1. Faça backup do banco no phpMyAdmin.
+2. Substitua os arquivos do projeto pela pasta biblioteca_central_sistema do ZIP.
+3. Execute sql/04_pedido_devolucao.sql no phpMyAdmin, selecionando biblioteca_central.
+4. Abra http://localhost/biblioteca_central_sistema/login.php
+5. Leitor: Meus pedidos > Solicitar devolução (empréstimos aprovados ainda abertos).
+6. Administrador: Devoluções solicitadas > Confirmar recebimento ou Recusar.
+
+A solicitação NÃO devolve automaticamente o livro. A devolução só é efetivada após confirmação administrativa.
+Não há necessidade de reinstalar o banco nem apagar os dados existentes.
+Se o seu projeto já foi alterado manualmente, faça backup dos arquivos antes de substituir.
+O sistema permanece voltado para uso acadêmico local.

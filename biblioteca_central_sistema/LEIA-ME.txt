@@ -1,0 +1,44 @@
+BIBLIOTECA CENTRAL — VERSÃO 2 (ADMINISTRADOR + LEITOR)
+
+ATENÇÃO: faça backup do banco antes de atualizar.
+
+1. No XAMPP, inicie Apache e MySQL.
+2. Garanta que o script ORIGINAL biblioteca_central_mariadb_xampp.sql já tenha sido executado.
+3. No phpMyAdmin, selecione biblioteca_central e execute SOMENTE:
+   sql/03_migracao_portal.sql
+   A migração cria conta e pedido_emprestimo sem apagar as tabelas existentes.
+4. Substitua a pasta antiga por biblioteca_central_sistema dentro de C:\xampp\htdocs\.
+5. Confira usuário/senha em config/conexao.php.
+6. Crie a primeira conta admin NO TERMINAL, dentro da pasta do sistema:
+   C:\xampp\php\php.exe tools\criar_admin.php admin@biblioteca.local "UmaSenhaForteCom12Caracteres"
+   Opcional: acrescente um id_funcionario existente no fim do comando.
+   Use uma senha real, forte e diferente do exemplo.
+   ATENÇÃO: a senha na linha de comando pode ficar no histórico do terminal.
+7. Acesse http://localhost/biblioteca_central_sistema/login.php
+8. Leitores podem se cadastrar em /cadastro.php e entrar com seu e-mail e senha.
+
+FLUXO
+- Leitor: login > catálogo > solicitar empréstimo > meus pedidos > cancelar pendente.
+- Admin: login > solicitações > aprovar/recusar > empréstimo real registrado
+  pela procedure emprestar_livro (prazo de 14 dias).
+- Admin também tem painel, livros, leitores e empréstimos da versão anterior.
+
+OBSERVAÇÕES
+- Contas existentes na tabela usuario NÃO recebem senha automaticamente.
+  Para contas já cadastradas, será necessário um processo de vinculação seguro;
+  não tente registrar o mesmo e-mail novamente.
+- A conta admin criada sem id_funcionario aprova pedidos com responsável nulo.
+- O administrador pode registrar empréstimos diretamente no módulo antigo.
+- A tabela de pedidos é separada da tabela de empréstimos efetivados.
+- O status processando pode indicar erro após a procedure: verifique manualmente
+  os empréstimos antes de corrigir o status; NÃO reaprove automaticamente.
+- O projeto é acadêmico/local, não pronto para hospedagem pública. Antes de
+  publicar: HTTPS, rate limiting no login, recuperação segura de senha,
+  verificação de e-mail, controle de sessões e auditoria.
+- O login diferencia permissões no servidor; não basta esconder links.
+
+VINCULAR LEITORES JÁ EXISTENTES
+Depois de confirmar a identidade do leitor por um canal administrativo confiável,
+execute no terminal:
+C:\xampp\php\php.exe tools\vincular_leitor.php leitor@exemplo.com "SenhaForteCom10Caracteres"
+Não envie a senha em mensagens; a linha de comando pode ficar no histórico.
