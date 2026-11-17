@@ -1,0 +1,392 @@
+-- CODIGO SQL COMPLETO - BIBLIOTECA CENTRAL - XAMPP / MariaDB
+-- INSTALACAO NOVA: execute no phpMyAdmin.
+-- ATENCAO: para banco existente, faca backup e nao reimporte este script integralmente.
+-- Contem tabelas, dados iniciais, view, procedures, contas/pedidos e devolucoes.
+
+-- INSTALACAO COMPLETA DO BANCO BIBLIOTECA CENTRAL PARA O PORTAL ADMIN + LEITOR
+-- Use em um banco novo. Se ja possui o banco, use apenas o arquivo ATUALIZACAO.
+
+-- =====================================================================
+-- BIBLIOTECA CENTRAL | MARIA DB / XAMPP
+-- Execute no phpMyAdmin (aba SQL) ou no cliente MariaDB.
+-- Recomendado: MariaDB 10.6+ e mecanismo InnoDB.
+-- Este arquivo reúne estrutura, dados iniciais, view, procedures e atividades.
+-- =====================================================================
+
+CREATE DATABASE IF NOT EXISTS biblioteca_central
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE biblioteca_central;
+
+-- Para recriar do zero, descomente as linhas abaixo. ATENÇÃO: apagam os dados.
+-- DROP VIEW IF EXISTS vw_livro_disponivel;
+-- DROP TABLE IF EXISTS usuario_preferencia, item_emprestimo, emprestimo,
+--   livro_midia, livro_autor, midia, livro, funcionario, usuario, autor,
+--   categoria, editora;
+
+-- =====================================================================
+-- 1. TABELAS
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS editora (
+  id_editora INT AUTO_INCREMENT PRIMARY KEY,
+  nome VARCHAR(120) NOT NULL UNIQUE,
+  telefone VARCHAR(30)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS categoria (
+  id_categoria INT AUTO_INCREMENT PRIMARY KEY,
+  nome VARCHAR(80) NOT NULL UNIQUE,
+  descricao TEXT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS autor (
+  id_autor INT AUTO_INCREMENT PRIMARY KEY,
+  nome VARCHAR(150) NOT NULL UNIQUE,
+  nacionalidade VARCHAR(80)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS livro (
+  id_livro INT AUTO_INCREMENT PRIMARY KEY,
+  titulo VARCHAR(200) NOT NULL UNIQUE,
+  isbn VARCHAR(20) UNIQUE,
+  ano_publicacao SMALLINT,
+  estoque INT NOT NULL DEFAULT 1,
+  preco_reposicao DECIMAL(10,2) NOT NULL DEFAULT 50.00,
+  idioma VARCHAR(40) NOT NULL DEFAULT 'Português',
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id_editora INT,
+  id_categoria INT,
+  CONSTRAINT ck_livro_estoque CHECK (estoque >= 0),
+  CONSTRAINT ck_livro_preco CHECK (preco_reposicao >= 0),
+  CONSTRAINT ck_livro_ano CHECK (ano_publicacao IS NULL OR ano_publicacao BETWEEN 1 AND 2100),
+  CONSTRAINT fk_livro_editora FOREIGN KEY (id_editora) REFERENCES editora(id_editora),
+  CONSTRAINT fk_livro_categoria FOREIGN KEY (id_categoria) REFERENCES categoria(id_categoria),
+  INDEX idx_livro_editora (id_editora),
+  INDEX idx_livro_categoria (id_categoria)
+) ENGINE=InnoDB;
+
+-- Relacionamento N:N entre livro e autor.
+CREATE TABLE IF NOT EXISTS livro_autor (
+  id_livro INT NOT NULL,
+  id_autor INT NOT NULL,
+  PRIMARY KEY (id_livro, id_autor),
+  INDEX idx_livro_autor_autor (id_autor),
+  CONSTRAINT fk_la_livro FOREIGN KEY (id_livro) REFERENCES livro(id_livro) ON DELETE CASCADE,
+  CONSTRAINT fk_la_autor FOREIGN KEY (id_autor) REFERENCES autor(id_autor) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS midia (
+  id_midia INT AUTO_INCREMENT PRIMARY KEY,
+  titulo VARCHAR(200) NOT NULL,
+  tipo VARCHAR(20) NOT NULL,
+  CONSTRAINT ck_midia_tipo CHECK (tipo IN ('Filme', 'Série', 'Jogo')),
+  UNIQUE KEY uk_midia_titulo_tipo (titulo, tipo)
+) ENGINE=InnoDB;
+
+-- Relacionamento N:N entre livro e mídias relacionadas.
+CREATE TABLE IF NOT EXISTS livro_midia (
+  id_livro INT NOT NULL,
+  id_midia INT NOT NULL,
+  PRIMARY KEY (id_livro, id_midia),
+  INDEX idx_livro_midia_midia (id_midia),
+  CONSTRAINT fk_lm_livro FOREIGN KEY (id_livro) REFERENCES livro(id_livro) ON DELETE CASCADE,
+  CONSTRAINT fk_lm_midia FOREIGN KEY (id_midia) REFERENCES midia(id_midia) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- No MariaDB, o usuário é cadastrado diretamente nesta tabela.
+-- Não existe dependência de auth.users nem de UUID do Supabase.
+CREATE TABLE IF NOT EXISTS usuario (
+  id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+  nome VARCHAR(150) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  telefone VARCHAR(30),
+  data_nascimento DATE,
+  ativo BOOLEAN NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS funcionario (
+  id_funcionario INT AUTO_INCREMENT PRIMARY KEY,
+  nome VARCHAR(150) NOT NULL,
+  cargo VARCHAR(80),
+  telefone VARCHAR(30),
+  ativo BOOLEAN NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS emprestimo (
+  id_emprestimo INT AUTO_INCREMENT PRIMARY KEY,
+  data_emprestimo DATE NOT NULL DEFAULT (CURRENT_DATE),
+  data_prevista DATE NOT NULL,
+  data_devolucao DATE,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id_usuario INT NOT NULL,
+  id_funcionario INT,
+  CONSTRAINT ck_emprestimo_prevista CHECK (data_prevista >= data_emprestimo),
+  CONSTRAINT ck_emprestimo_devolucao CHECK (data_devolucao IS NULL OR data_devolucao >= data_emprestimo),
+  CONSTRAINT fk_emprestimo_usuario FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
+  CONSTRAINT fk_emprestimo_funcionario FOREIGN KEY (id_funcionario) REFERENCES funcionario(id_funcionario),
+  INDEX idx_emprestimo_usuario (id_usuario),
+  INDEX idx_emprestimo_funcionario (id_funcionario)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS item_emprestimo (
+  id_emprestimo INT NOT NULL,
+  id_livro INT NOT NULL,
+  PRIMARY KEY (id_emprestimo, id_livro),
+  INDEX idx_item_emprestimo_livro (id_livro),
+  CONSTRAINT fk_item_emprestimo FOREIGN KEY (id_emprestimo) REFERENCES emprestimo(id_emprestimo) ON DELETE CASCADE,
+  CONSTRAINT fk_item_livro FOREIGN KEY (id_livro) REFERENCES livro(id_livro)
+) ENGINE=InnoDB;
+
+-- Coluna JSON nativa do MariaDB (armazenada com validação JSON).
+CREATE TABLE IF NOT EXISTS usuario_preferencia (
+  id_preferencia INT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario INT NOT NULL UNIQUE,
+  preferencias JSON NOT NULL,
+  CONSTRAINT fk_preferencia_usuario FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- =====================================================================
+-- 2. DADOS INICIAIS
+-- =====================================================================
+
+INSERT IGNORE INTO categoria (id_categoria, nome, descricao) VALUES
+(1, 'Terror', 'Horror gótico, sobrenatural e psicológico'),
+(2, 'Ficção científica', 'Futuros, tecnologia e distopias'),
+(3, 'Fantasia', 'Mundos épicos, magia e mitologia');
+
+INSERT IGNORE INTO editora (id_editora, nome) VALUES
+(1, 'Suma'), (2, 'Darkside'), (3, 'Aleph'),
+(4, 'Companhia das Letras'), (5, 'Biblioteca Azul'),
+(6, 'HarperCollins'), (7, 'Arqueiro'), (8, 'Leya');
+
+INSERT IGNORE INTO autor (id_autor, nome, nacionalidade) VALUES
+(1, 'Stephen King', 'Estados Unidos'),
+(2, 'Bram Stoker', 'Irlanda'),
+(3, 'Shirley Jackson', 'Estados Unidos'),
+(4, 'Mary Shelley', 'Reino Unido'),
+(5, 'J. Sheridan Le Fanu', 'Irlanda'),
+(6, 'Oscar Wilde', 'Irlanda'),
+(7, 'Richard Matheson', 'Estados Unidos'),
+(8, 'Frank Herbert', 'Estados Unidos'),
+(9, 'William Gibson', 'Estados Unidos'),
+(10, 'Isaac Asimov', 'Estados Unidos'),
+(11, 'George Orwell', 'Reino Unido'),
+(12, 'Aldous Huxley', 'Reino Unido'),
+(13, 'Stanisław Lem', 'Polônia'),
+(14, 'J. R. R. Tolkien', 'Reino Unido'),
+(15, 'Patrick Rothfuss', 'Estados Unidos'),
+(16, 'George R. R. Martin', 'Estados Unidos'),
+(17, 'Brandon Sanderson', 'Estados Unidos');
+
+INSERT IGNORE INTO livro
+(id_livro, titulo, ano_publicacao, estoque, preco_reposicao, id_editora, id_categoria) VALUES
+(1, 'O Iluminado', 1977, 2, 55.00, 1, 1),
+(2, 'It: A Coisa', 1986, 1, 60.00, 1, 1),
+(3, 'Drácula', 1897, 2, 50.00, 2, 1),
+(4, 'A Assombração da Casa da Colina', 1959, 1, 45.00, 1, 1),
+(5, 'Frankenstein', 1818, 2, 50.00, 2, 1),
+(6, 'Carmilla', 1872, 1, 40.00, 2, 1),
+(7, 'O Retrato de Dorian Gray', 1890, 2, 45.00, 4, 1),
+(8, 'Eu Sou a Lenda', 1954, 1, 50.00, 3, 1),
+(9, 'Carrie', 1974, 2, 50.00, 1, 1),
+(10, 'Duna', 1965, 2, 65.00, 3, 2),
+(11, 'Neuromancer', 1984, 1, 55.00, 3, 2),
+(12, 'Fundação', 1951, 2, 55.00, 3, 2),
+(13, 'Eu, Robô', 1950, 1, 45.00, 3, 2),
+(14, '1984', 1949, 3, 50.00, 4, 2),
+(15, 'Admirável Mundo Novo', 1932, 2, 45.00, 5, 2),
+(16, 'Solaris', 1961, 1, 50.00, 3, 2),
+(17, 'O Hobbit', 1937, 2, 55.00, 6, 3),
+(18, 'A Sociedade do Anel', 1954, 1, 60.00, 6, 3),
+(19, 'O Nome do Vento', 2007, 2, 84.90, 7, 3),
+(20, 'A Guerra dos Tronos', 1996, 2, 60.00, 1, 3),
+(21, 'Mistborn: O Império Final', 2006, 1, 55.00, 8, 3);
+
+INSERT IGNORE INTO livro_autor (id_livro, id_autor) VALUES
+(1,1),(2,1),(3,2),(4,3),(5,4),(6,5),(7,6),(8,7),(9,1),
+(10,8),(11,9),(12,10),(13,10),(14,11),(15,12),(16,13),
+(17,14),(18,14),(19,15),(20,16),(21,17);
+
+-- Usuários de demonstração para testar empréstimos e consultas.
+INSERT IGNORE INTO usuario (id_usuario, nome, email, telefone, data_nascimento) VALUES
+(1, 'Ana Souza', 'ana.souza@exemplo.com', '(21) 98888-7777', '2001-04-15'),
+(2, 'Carlos Lima', 'carlos.lima@exemplo.com', '(21) 97777-6666', '1998-09-22'),
+(3, 'Karla Mendes', 'karla.mendes@exemplo.com', '(21) 96666-5555', '2000-12-03');
+
+INSERT IGNORE INTO funcionario (id_funcionario, nome, cargo, telefone) VALUES
+(1, 'Mariana Costa', 'Bibliotecária', '(21) 90000-0001'),
+(2, 'Pedro Almeida', 'Atendente', '(21) 90000-0002');
+
+-- Mídias associadas a alguns livros (filmes, séries e jogos).
+INSERT IGNORE INTO midia (titulo, tipo) VALUES
+('O Iluminado (1980)', 'Filme'), ('Doutor Sono', 'Filme'),
+('Alan Wake 2', 'Jogo'), ('Layers of Fear', 'Jogo'),
+('It: A Coisa (2017)', 'Filme'), ('Stranger Things', 'Série'),
+('Until Dawn', 'Jogo'), ('Dead by Daylight', 'Jogo'),
+('Nosferatu (2024)', 'Filme'), ('Drácula (BBC, 2020)', 'Série'),
+('Castlevania: Symphony of the Night', 'Jogo'), ('Vampyr', 'Jogo'),
+('Frankenstein (1931)', 'Filme'), ('Pobres Criaturas', 'Filme'),
+('Bloodborne', 'Jogo'), ('SOMA', 'Jogo'),
+('Duna: Parte Dois', 'Filme'), ('Duna: Profecia', 'Série'),
+('Cyberpunk 2077', 'Jogo'), ('The Witcher 3', 'Jogo'),
+('Game of Thrones', 'Série'), ('A Casa do Dragão', 'Série'),
+('O Senhor dos Anéis: A Sociedade do Anel', 'Filme'), ('Os Anéis de Poder', 'Série');
+
+INSERT IGNORE INTO livro_midia (id_livro, id_midia)
+SELECT l.id_livro, m.id_midia FROM livro l JOIN midia m ON
+ (l.titulo='O Iluminado' AND m.titulo IN ('O Iluminado (1980)','Doutor Sono','Alan Wake 2','Layers of Fear')) OR
+ (l.titulo='It: A Coisa' AND m.titulo IN ('It: A Coisa (2017)','Stranger Things','Until Dawn','Dead by Daylight')) OR
+ (l.titulo='Drácula' AND m.titulo IN ('Nosferatu (2024)','Drácula (BBC, 2020)','Castlevania: Symphony of the Night','Vampyr')) OR
+ (l.titulo='Frankenstein' AND m.titulo IN ('Frankenstein (1931)','Pobres Criaturas','Bloodborne','SOMA')) OR
+ (l.titulo='Duna' AND m.titulo IN ('Duna: Parte Dois','Duna: Profecia')) OR
+ (l.titulo='A Guerra dos Tronos' AND m.titulo IN ('Game of Thrones','A Casa do Dragão')) OR
+ (l.titulo='A Sociedade do Anel' AND m.titulo IN ('O Senhor dos Anéis: A Sociedade do Anel','Os Anéis de Poder'));
+
+INSERT IGNORE INTO usuario_preferencia (id_usuario, preferencias) VALUES
+(1, JSON_OBJECT('generos', JSON_ARRAY('Terror','Fantasia'), 'midias', JSON_ARRAY('Jogo','Filme'), 'notificacoes', JSON_OBJECT('email', TRUE, 'prazo_dias', 2))),
+(2, JSON_OBJECT('generos', JSON_ARRAY('Ficção científica'), 'midias', JSON_ARRAY('Série'), 'notificacoes', JSON_OBJECT('email', FALSE, 'prazo_dias', 1))),
+(3, JSON_OBJECT('generos', JSON_ARRAY('Terror'), 'midias', JSON_ARRAY('Jogo'), 'notificacoes', JSON_OBJECT('email', TRUE, 'prazo_dias', 3)));
+
+-- =====================================================================
+-- 3. ÍNDICES ADICIONAIS E VIEW DE DISPONIBILIDADE
+-- =====================================================================
+
+CREATE OR REPLACE VIEW vw_livro_disponivel AS
+SELECT l.id_livro, l.titulo, l.isbn, l.ano_publicacao, l.estoque,
+       l.preco_reposicao, l.idioma, l.ativo, l.id_editora, l.id_categoria,
+       l.estoque - COUNT(CASE WHEN e.data_devolucao IS NULL THEN e.id_emprestimo END) AS disponivel
+FROM livro l
+LEFT JOIN item_emprestimo i ON i.id_livro = l.id_livro
+LEFT JOIN emprestimo e ON e.id_emprestimo = i.id_emprestimo
+GROUP BY l.id_livro, l.titulo, l.isbn, l.ano_publicacao, l.estoque,
+         l.preco_reposicao, l.idioma, l.ativo, l.id_editora, l.id_categoria;
+
+-- =====================================================================
+-- 4. PROCEDURES PARA EMPRÉSTIMO E DEVOLUÇÃO
+-- O usuário é informado como parâmetro, pois não há auth.uid() no MariaDB.
+-- =====================================================================
+
+DROP PROCEDURE IF EXISTS emprestar_livro;
+DROP PROCEDURE IF EXISTS devolver_emprestimo;
+DELIMITER //
+CREATE PROCEDURE emprestar_livro(
+  IN p_id_usuario INT,
+  IN p_id_livro INT,
+  IN p_id_funcionario INT
+)
+BEGIN
+  DECLARE v_disponivel INT DEFAULT 0;
+  DECLARE v_estoque INT DEFAULT 0;
+  DECLARE v_emprestimo INT;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  START TRANSACTION;
+  IF NOT EXISTS (SELECT 1 FROM usuario WHERE id_usuario = p_id_usuario AND ativo = TRUE) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Usuário não encontrado ou inativo.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM livro WHERE id_livro = p_id_livro AND ativo = TRUE) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Livro não encontrado ou inativo.';
+  END IF;
+
+  SELECT estoque INTO v_estoque
+  FROM livro WHERE id_livro = p_id_livro FOR UPDATE;
+  SELECT v_estoque - COUNT(*) INTO v_disponivel
+  FROM item_emprestimo i
+  JOIN emprestimo e ON e.id_emprestimo = i.id_emprestimo
+  WHERE i.id_livro = p_id_livro AND e.data_devolucao IS NULL;
+  IF v_disponivel <= 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Livro indisponível.';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM item_emprestimo i
+    JOIN emprestimo e ON e.id_emprestimo = i.id_emprestimo
+    WHERE i.id_livro = p_id_livro AND e.id_usuario = p_id_usuario
+      AND e.data_devolucao IS NULL
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Este usuário já está com este livro.';
+  END IF;
+
+  INSERT INTO emprestimo (data_prevista, id_usuario, id_funcionario)
+  VALUES (DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), p_id_usuario, p_id_funcionario);
+  SET v_emprestimo = LAST_INSERT_ID();
+  INSERT INTO item_emprestimo (id_emprestimo, id_livro) VALUES (v_emprestimo, p_id_livro);
+  COMMIT;
+  SELECT v_emprestimo AS id_emprestimo_criado;
+END//
+
+CREATE PROCEDURE devolver_emprestimo(IN p_id_emprestimo INT)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM emprestimo
+    WHERE id_emprestimo = p_id_emprestimo AND data_devolucao IS NULL
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Empréstimo não encontrado ou já devolvido.';
+  END IF;
+  UPDATE emprestimo
+  SET data_devolucao = CURRENT_DATE
+  WHERE id_emprestimo = p_id_emprestimo AND data_devolucao IS NULL;
+  SELECT 'Devolução registrada com sucesso.' AS mensagem;
+END//
+DELIMITER ;
+
+
+-- PORTAL ADMINISTRATIVO E DO LEITOR
+-- Execute UMA VEZ após o script original biblioteca_central_mariadb_xampp.sql.
+-- Não apaga nem substitui livros, leitores ou empréstimos existentes.
+USE biblioteca_central;
+
+CREATE TABLE IF NOT EXISTS conta (
+ id_conta INT AUTO_INCREMENT PRIMARY KEY,
+ email VARCHAR(255) NOT NULL UNIQUE,
+ senha_hash VARCHAR(255) NOT NULL,
+ perfil ENUM('admin','leitor') NOT NULL,
+ id_usuario INT NULL UNIQUE,
+ id_funcionario INT NULL UNIQUE,
+ ativo TINYINT(1) NOT NULL DEFAULT 1,
+ criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ CONSTRAINT fk_conta_usuario FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
+ CONSTRAINT fk_conta_funcionario FOREIGN KEY (id_funcionario) REFERENCES funcionario(id_funcionario)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS pedido_emprestimo (
+ id_pedido INT AUTO_INCREMENT PRIMARY KEY,
+ id_usuario INT NOT NULL,
+ id_livro INT NOT NULL,
+ status ENUM('pendente','processando','aprovado','recusado','cancelado') NOT NULL DEFAULT 'pendente',
+ solicitado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ analisado_em DATETIME NULL,
+ id_funcionario INT NULL,
+ id_emprestimo INT NULL UNIQUE,
+ observacao VARCHAR(500) NULL,
+ CONSTRAINT fk_pedido_usuario FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
+ CONSTRAINT fk_pedido_livro FOREIGN KEY (id_livro) REFERENCES livro(id_livro),
+ CONSTRAINT fk_pedido_funcionario FOREIGN KEY (id_funcionario) REFERENCES funcionario(id_funcionario),
+ CONSTRAINT fk_pedido_emprestimo FOREIGN KEY (id_emprestimo) REFERENCES emprestimo(id_emprestimo),
+ INDEX idx_pedido_status (status, solicitado_em),
+ INDEX idx_pedido_usuario (id_usuario, status)
+) ENGINE=InnoDB;
+
+
+-- COMPLEMENTO: SOLICITACAO DE DEVOLUCAO
+USE biblioteca_central;
+CREATE TABLE IF NOT EXISTS pedido_devolucao (
+ id_pedido_devolucao INT AUTO_INCREMENT PRIMARY KEY,
+ id_emprestimo INT NOT NULL,
+ id_usuario INT NOT NULL,
+ status ENUM('pendente','confirmado','recusado') NOT NULL DEFAULT 'pendente',
+ solicitado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ analisado_em DATETIME NULL,
+ observacao VARCHAR(500) NULL,
+ id_conta_admin INT NULL,
+ FOREIGN KEY (id_emprestimo) REFERENCES emprestimo(id_emprestimo),
+ FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
+ FOREIGN KEY (id_conta_admin) REFERENCES conta(id_conta),
+ INDEX idx_devolucao_status (status,solicitado_em),
+ INDEX idx_devolucao_emprestimo (id_emprestimo,status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
